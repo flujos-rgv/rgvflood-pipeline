@@ -1,0 +1,10 @@
+/_raw
+/bkp
+/input
+/output
+/tiles
+
+.env
+
+copyFiles
+.DS_Store

@@ -1,0 +1,69 @@
+export PYTHONWARNINGS="ignore::FutureWarning"
+
+# Cleanup and create tmp directories
+rm -Rf ./output/$1/$2
+
+mkdir ./output
+mkdir ./output/$1
+mkdir ./output/$1/$2
+
+mkdir ./output/$1/$2/wgs84
+mkdir ./output/$1/$2/tmp
+
+for f in ./input/$1/**/*.tif; do
+  parent=$(basename $(dirname "$f"))
+  name=$(basename "$f" .tif)
+
+  min_val=$(gdalinfo -stats "$f" 2>/dev/null | grep "Minimum=" | sed 's/.*Minimum=//' | cut -d, -f1 | xargs printf "%.0f")
+  max_val=$(gdalinfo -stats "$f" 2>/dev/null | grep "Maximum=" | sed 's/.*Maximum=//' | cut -d, -f1 | xargs printf "%.0f")
+
+  # Align the different scales used
+  if [ "$max_val" -eq 255 ]; then
+    val=255
+  elif [ "$parent" = "planetscope" ]; then
+    val=2
+  else
+    val=1
+  fi
+
+  # Recalculate scales
+  gdal_calc \
+    -A "$f" \
+    --outfile="./output/$1/$2/tmp/${parent}__${name}_binary.tif" \
+    --calc="(numpy.round(A) == ${val}).astype(int)" \
+    --NoDataValue=0
+
+  # Reproject
+  gdalwarp \
+    -t_srs EPSG:4326 \
+    -ot Int16 \
+    -r near \
+    "./output/$1/$2/tmp/${parent}__${name}_binary.tif" "./output/$1/$2/wgs84/${parent}__${name}.vrt" \
+    -of VRT
+done
+
+# Merge .vrt files
+gdalbuildvrt ./output/$1/$2/geo-merged.vrt ./output/$1/$2/wgs84/*.vrt > /dev/null 2>&1
+
+# Polygonize tif => geojson
+gdal_polygonize.py ./output/$1/$2/geo-merged.vrt -f GeoJSON ./output/$1/$2/geo-contours-filtered.geojson > /dev/null 2>&1
+
+# Cleanup and create tile directories
+rm -Rf ./tiles/$1
+mkdir tiles
+mkdir tiles/$1
+mkdir tiles/$1/$2
+
+# Create tiles with zoom levels 0-12
+# layer name: 'floodlayer'
+tippecanoe \
+  -z12 -e ./tiles/$1/$2 \
+  --no-tile-compression \
+  --minimum-zoom=0 \
+  --maximum-zoom=12 \
+  --drop-densest-as-needed \
+  --extend-zooms-if-still-dropping \
+  -L floodlayer:./output/$1/$2/geo-contours-filtered.geojson
+
+# Cleanup tm files
+rm -Rf ./output/$1

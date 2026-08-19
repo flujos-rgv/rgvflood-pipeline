@@ -1,0 +1,17 @@
+for f in ./input/$1/**/*.tif; do
+  parent=$(basename $(dirname "$f"))
+  name=$(basename "$f" .tif)
+
+  min_val=$(gdalinfo -stats "$f" 2>/dev/null | grep "Minimum=" | sed 's/.*Minimum=//' | cut -d, -f1 | xargs printf "%.0f")
+  max_val=$(gdalinfo -stats "$f" 2>/dev/null | grep "Maximum=" | sed 's/.*Maximum=//' | cut -d, -f1 | xargs printf "%.0f")
+
+  if [ "$max_val" -eq 255 ]; then
+    val=255
+  elif [ "$min_val" -eq 0 ]; then
+    val=1
+  else
+    val=2
+  fi
+
+  echo "$parent => MIN=$min_val MAX=$max_val VAL=$val"
+done
